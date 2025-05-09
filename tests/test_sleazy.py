@@ -251,6 +251,7 @@ def test_positional_with_count_constraints():
     with pytest.raises(SystemExit):
         print(parse_args_from_typeddict(PositionalWithConstraints, ['compress', 'input.txt']))
 
+
 def test_exact_numeric_count():
     class CountTest(t.TypedDict):
         files: t.Annotated[list[str], 'positional', '2']
@@ -339,3 +340,19 @@ def test_typeddict_to_cli_args_with_literal():
     assert args[0] == '2'  # Positional comes first
     assert '--mode' in args
     assert 'fast' in args
+
+
+## hooman:
+
+def test_list_repeat():
+    class MyConfigDict(t.TypedDict):
+        repeatme: list[str]
+
+    a = parse_args_from_typeddict(MyConfigDict, ["--repeatme", "once"])
+    b = parse_args_from_typeddict(MyConfigDict, ["--repeatme", "once", "--repeatme", "twice"])
+
+    assert a["repeatme"] == ["once"]
+    assert b["repeatme"] == ["once", "twice"]
+
+    assert typeddict_to_cli_args(a) == ['--repeatme', 'once']
+    assert typeddict_to_cli_args(b) == ['--repeatme', 'once', '--repeatme', 'twice']

@@ -103,8 +103,15 @@ def parse_args_from_typeddict(typeddict_cls: t.Type[D], args: t.Optional[list[st
             continue
 
         arg_type = hint
+        is_list_type = False
+
         if t.get_origin(hint) is t.Annotated:
             arg_type, *_ = t.get_args(hint)
+
+        # Check if the type is a list
+        if t.get_origin(arg_type) is list:
+            is_list_type = True
+            elem_type = t.get_args(arg_type)[0] if t.get_args(arg_type) else str
 
         # Handle Literal types in optional arguments
         if t.get_origin(arg_type) is t.Literal:
@@ -117,6 +124,10 @@ def parse_args_from_typeddict(typeddict_cls: t.Type[D], args: t.Optional[list[st
                 parser.add_argument(f"--{field.replace('_', '-')}")
         elif arg_type is bool:
             parser.add_argument(f"--{field.replace('_', '-')}", action="store_true")
+        elif is_list_type:
+            # For list types, use 'append' action to collect multiple instances
+            elem_type = t.get_args(arg_type)[0] if t.get_args(arg_type) else str
+            parser.add_argument(f"--{field.replace('_', '-')}", type=elem_type, action="append")
         else:
             parser.add_argument(f"--{field.replace('_', '-')}", type=arg_type)
 
@@ -172,6 +183,11 @@ def typeddict_to_cli_args(data: dict[str, t.Any], typeddict_cls: t.Type[D] = Non
         if isinstance(value, bool):
             if value:  # Only add flag if True
                 args.append(f"--{field.replace('_', '-')}")
+        elif isinstance(value, list):
+            # For list types, add each item as a separate flag occurrence
+            for item in value:
+                args.append(f"--{field.replace('_', '-')}")
+                args.append(str(item))
         else:
             args.append(f"--{field.replace('_', '-')}")
             args.append(str(value))
