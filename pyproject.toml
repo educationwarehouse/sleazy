@@ -1,6 +1,6 @@
 [project]
 name = "sleazy"
-version = "0.1.0"
+dynamic = ["version"]
 description = "TypedDict based cli argument parsing"
 readme = "README.md"
 authors = [
@@ -8,6 +8,9 @@ authors = [
 ]
 requires-python = ">=3.12"
 dependencies = []
+
+[tool.hatch.version]
+path = "src/sleazy/__about__.py"
 
 [project.optional-dependencies]
 dev = [
