@@ -15,6 +15,7 @@ path = "src/sleazy/__about__.py"
 [project.optional-dependencies]
 dev = [
     "pytest",
+    "pytest-cov",
 ]
 
 [build-system]
@@ -28,3 +29,19 @@ change_log = "CHANGELOG.md"
 upload_to_repository = false
 upload_to_release = false
 build_command = "hatch build"
+
+[template.plugins.default]
+src-layout = true
+
+[tool.pytest.ini_options]
+pythonpath = [
+    "src",
+]
+
+[tool.su6]
+directory = "src"
+stop-after-first-failure = true
+include = []
+exclude = []
+coverage = 100
+badge = true

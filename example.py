@@ -1,19 +1,5 @@
-# sleazy
-
-A tiny utility to build CLI tools from Python `TypedDict` schemas.  
-Define your parameters with type hints (and `Annotated` for positionals), then call `parse()` to get a typed dict and
-`stringify()` to turn it back into args.
-
-## Installation
-
-```shell script
-uv pip install sleazy
-```
-
-## Example CLI
-
-```python
 from typing import Annotated, Literal, TypedDict
+
 from sleazy import parse, stringify
 
 
@@ -33,7 +19,9 @@ class AppConfig(TypedDict):
 
 if __name__ == "__main__":
     # parse() returns a dict matching AppConfig
-    args = parse(AppConfig) # python example.py data.txt tag1 tag2 --output out.txt --verbose --retries 5 --mode auto
+    args = parse(
+        AppConfig
+    )  # python example.py data.txt tag1 tag2 --output out.txt --verbose --retries 5 --mode auto
     print(args)
     # {
     #   'input_file': 'data.txt',
@@ -65,11 +53,3 @@ if __name__ == "__main__":
     #   '--retries', '5',
     #   '--mode', 'auto'
     # ]
-```
-
-**Notes**
-
-- Positionals are marked via `Annotated[type, count]` (`1`, `?`, `*`, `+`, or exact integer).
-- All other fields become `--field-name` flags by default.
-- It's useful to pass your `TypedDict` type to `stringify()` so it knows which fields are positional (and their order). Without it,
-  everything is emitted as a keyword flag.

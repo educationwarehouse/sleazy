@@ -2,49 +2,50 @@
 Fixme: these tests were automatically generated and should still be manually confirmed!
 """
 
+import enum
 import typing as t
 
 import pytest
 
 from src.sleazy import (
-    parse_args_from_typeddict,
+    TypedDict,
+    parse,
     parse_count_spec,
-    typeddict_to_cli_args,
+    stringify,
+    strip_optional,
 )
 
 
 def test_parse_count_spec():
-    # Test various formats of count specifications
+    # Exact numbers
     assert parse_count_spec("0") == 0
     assert parse_count_spec("1") == 1
+    assert parse_count_spec("") == 1
     assert parse_count_spec("5") == 5
 
-    # Test comparison operators
-    assert parse_count_spec(">= 0") == "*"
-    assert parse_count_spec(">= 1") == "+"
-    assert parse_count_spec(">= 5") == "+"  # Any N >= 1 maps to + in argparse
-    assert parse_count_spec("<= 1") == "?"
-    assert parse_count_spec("<= 5") == "?"  # Any N <= N maps to ? in argparse
-    assert parse_count_spec("== 1") == 1
-    assert parse_count_spec("== 3") == 3
-    assert parse_count_spec("== 10") == 10
-    assert parse_count_spec("> 0") == "+"  # More than 0 is at least 1
-    assert parse_count_spec("> 5") == "+"  # More than N is at least N+1
-    assert parse_count_spec("< 1") == "?"  # Less than 1 means optional (0)
-    assert parse_count_spec("< 5") == "?"  # Less than N means 0 to N-1
+    # Direct argparse-style symbols
+    assert parse_count_spec("+") == "+"
+    assert parse_count_spec("*") == "*"
+    assert parse_count_spec("?") == "?"
 
-    # Test with whitespace variations
-    assert parse_count_spec(">=0") == "*"
-    assert parse_count_spec("<=  1") == "?"
-    assert parse_count_spec(">0") == "+"
+    # Comparison operators are not supported anymore → default to "?"
+    for spec in ("> 0", "<=5", ">= 1", "==3", "<1", ">=0", "invalid", "foo"):
+        with pytest.raises(SyntaxError):
+            parse_count_spec(spec)
 
-    # Test default value
-    assert parse_count_spec("invalid") == "?"
+
+def test_strip_optional_all_cases():
+    assert strip_optional(t.Optional[int]) is int
+    assert strip_optional(str | None) is str
+    assert strip_optional(t.Union[int, float, None]) == t.Union[int, float]
+    assert strip_optional(int | float | None) == t.Union[int, float]
+    assert strip_optional(int) is int
+    assert strip_optional(t.Union[None, None]) is type(None)
 
 
 def test_basic_type_parsing():
     class BasicTypes(t.TypedDict):
-        string_val: str
+        string_val: t.Optional[str]
         int_val: int
         float_val: float
         bool_val: bool
@@ -58,7 +59,7 @@ def test_basic_type_parsing():
         "3.14",
         "--bool-val",
     ]
-    result = parse_args_from_typeddict(BasicTypes, args)
+    result = parse(BasicTypes, args)
 
     assert result["string_val"] == "test"
     assert result["int_val"] == 42
@@ -68,12 +69,12 @@ def test_basic_type_parsing():
 
 def test_positional_args():
     class PositionalArgs(t.TypedDict):
-        pos1: t.Annotated[str, "positional"]
-        pos2: t.Annotated[int, "positional"]
-        opt1: str
+        pos1: t.Annotated[str, "?"]
+        pos2: t.Annotated[int, "?"]
+        opt1: str | None
 
     args = ["value1", "42", "--opt1", "option"]
-    result = parse_args_from_typeddict(PositionalArgs, args)
+    result = parse(PositionalArgs, args)
 
     assert result["pos1"] == "value1"
     assert result["pos2"] == 42
@@ -87,157 +88,155 @@ def test_literal_types():
 
     # Test valid literals
     args = ["--mode", "auto", "--level", "2"]
-    result = parse_args_from_typeddict(LiteralTypes, args)
+    result = parse(LiteralTypes, args)
 
     assert result["mode"] == "auto"
     assert result["level"] == 2
 
     # Test invalid literals - should raise error
     with pytest.raises(SystemExit):
-        parse_args_from_typeddict(LiteralTypes, ["--mode", "invalid", "--level", "2"])
+        parse(LiteralTypes, ["--mode", "invalid", "--level", "2"])
 
     with pytest.raises(SystemExit):
-        parse_args_from_typeddict(LiteralTypes, ["--mode", "auto", "--level", "5"])
+        parse(LiteralTypes, ["--mode", "auto", "--level", "5"])
 
 
 def test_positional_literal():
     class PosLiteral(t.TypedDict):
-        mode: t.Annotated[t.Literal["auto", "manual"], "positional"]
+        mode: t.Annotated[t.Literal["auto", "manual"], "1"]
 
     args = ["auto"]
-    result = parse_args_from_typeddict(PosLiteral, args)
+    result = parse(PosLiteral, args)
     assert result["mode"] == "auto"
 
     with pytest.raises(SystemExit):
-        parse_args_from_typeddict(PosLiteral, ["invalid"])
+        parse(PosLiteral, ["invalid"])
 
 
 def test_positional_count_zero_or_more():
     class CountTest(t.TypedDict):
-        files: t.Annotated[list[str], "positional", ">= 0"]
+        files: t.Annotated[list[str], "*"]
 
     # Test with multiple values
     args = ["file1.txt", "file2.txt", "file3.txt"]
-    result = parse_args_from_typeddict(CountTest, args)
+    result = parse(CountTest, args)
     assert result["files"] == ["file1.txt", "file2.txt", "file3.txt"]
 
     # Test with no values
     args = []
-    result = parse_args_from_typeddict(CountTest, args)
+    result = parse(CountTest, args)
     assert result["files"] == []
 
 
 def test_positional_count_one_or_more():
-    class CountTest(t.TypedDict):
-        files: t.Annotated[list[str], "positional", ">= 1"]
+    class CountTest(TypedDict):
+        files: t.Annotated[list[str], "+"]
 
     # Test with multiple values
     args = ["file1.txt", "file2.txt"]
-    result = parse_args_from_typeddict(CountTest, args)
+    result = parse(CountTest, args)
     assert result["files"] == ["file1.txt", "file2.txt"]
 
     # Test with no values - should fail
     with pytest.raises(SystemExit):
-        parse_args_from_typeddict(CountTest, [])
+        parse(CountTest, [])
 
 
 def test_positional_count_greater_than():
     class CountTest(t.TypedDict):
-        files: t.Annotated[list[str], "positional", "> 0"]
+        files: t.Annotated[list[str], "+"]
 
     # Test with values
     args = ["file1.txt", "file2.txt"]
-    result = parse_args_from_typeddict(CountTest, args)
+    result = parse(CountTest, args)
     assert result["files"] == ["file1.txt", "file2.txt"]
 
     # Test with no values - should fail
     with pytest.raises(SystemExit):
-        parse_args_from_typeddict(CountTest, [])
+        parse(CountTest, [])
 
 
 def test_positional_count_at_most_one():
     class CountTest(t.TypedDict):
-        file: t.Annotated[str, "positional", "<= 1"]
+        file: t.Annotated[str, "?"]
 
     # Test with one value
     args = ["file1.txt"]
-    result = parse_args_from_typeddict(CountTest, args)
+    result = parse(CountTest, args)
     assert result["file"] == "file1.txt"
 
     # Test with no values
     args = []
-    result = parse_args_from_typeddict(CountTest, args)
+    result = parse(CountTest, args)
     assert result["file"] is None
 
     # Test with multiple values - should fail
     with pytest.raises(SystemExit):
-        parse_args_from_typeddict(CountTest, ["file1.txt", "file2.txt"])
+        parse(CountTest, ["file1.txt", "file2.txt"])
 
 
 def test_positional_count_less_than():
     class CountTest(t.TypedDict):
-        file: t.Annotated[str, "positional", "< 2"]
+        file: t.Annotated[str, "?"]
 
     # Test with one value
     args = ["file1.txt"]
-    result = parse_args_from_typeddict(CountTest, args)
+    result = parse(CountTest, args)
     assert result["file"] == "file1.txt"
 
     # Test with no values
     args = []
-    result = parse_args_from_typeddict(CountTest, args)
+    result = parse(CountTest, args)
     assert result["file"] is None
 
     # Test with multiple values - should fail
     with pytest.raises(SystemExit):
-        parse_args_from_typeddict(CountTest, ["file1.txt", "file2.txt"])
+        parse(CountTest, ["file1.txt", "file2.txt"])
 
 
 def test_positional_count_exactly():
     class CountTest(t.TypedDict):
-        files: t.Annotated[list[str], "positional", "== 3"]
+        files: t.Annotated[list[str], "3"]
 
     # Test with exact number of values
     args = ["file1.txt", "file2.txt", "file3.txt"]
-    result = parse_args_from_typeddict(CountTest, args)
+    result = parse(CountTest, args)
     assert result["files"] == ["file1.txt", "file2.txt", "file3.txt"]
 
     # Test with too few values - should fail
     with pytest.raises(SystemExit):
-        parse_args_from_typeddict(CountTest, ["file1.txt", "file2.txt"])
+        parse(CountTest, ["file1.txt", "file2.txt"])
 
     # Test with too many values - should fail
     with pytest.raises(SystemExit):
-        parse_args_from_typeddict(
-            CountTest, ["file1.txt", "file2.txt", "file3.txt", "file4.txt"]
-        )
+        parse(CountTest, ["file1.txt", "file2.txt", "file3.txt", "file4.txt"])
 
 
 def test_positional_count_exactly_one():
     class CountTest(t.TypedDict):
-        command: t.Annotated[str, "positional", "== 1"]
+        command: t.Annotated[str, 1]
 
     # Test with single value
     args = ["build"]
-    result = parse_args_from_typeddict(CountTest, args)
+    result = parse(CountTest, args)
     assert result["command"] == "build"  # Should be a string, not a list
     assert not isinstance(result["command"], list)
 
     # Test with multiple values - should fail
     with pytest.raises(SystemExit):
-        parse_args_from_typeddict(CountTest, ["build", "extra"])
+        parse(CountTest, ["build", "extra"])
 
 
 def test_multiple_positional_args_with_fixed_counts():
     class FixedCounts(t.TypedDict):
-        command: t.Annotated[str, "positional", "== 1"]
-        subcommand: t.Annotated[str, "positional", "== 1"]
-        target: t.Annotated[str, "positional", "== 1"]
-        option: t.Annotated[str, "positional", "<= 1"]
+        command: t.Annotated[str, "1"]
+        subcommand: t.Annotated[str, 1]
+        target: t.Annotated[str, "1"]
+        option: t.Annotated[str, "?"]
 
     # Test with all arguments
     args = ["build", "web", "app.py", "debug"]
-    result = parse_args_from_typeddict(FixedCounts, args)
+    result = parse(FixedCounts, args)
     assert result["command"] == "build"
     assert result["subcommand"] == "web"
     assert result["target"] == "app.py"
@@ -245,7 +244,7 @@ def test_multiple_positional_args_with_fixed_counts():
 
     # Test with minimum required
     args = ["build", "web", "app.py"]
-    result = parse_args_from_typeddict(FixedCounts, args)
+    result = parse(FixedCounts, args)
     assert result["command"] == "build"
     assert result["subcommand"] == "web"
     assert result["target"] == "app.py"
@@ -254,45 +253,41 @@ def test_multiple_positional_args_with_fixed_counts():
 
 def test_positional_with_count_constraints():
     class PositionalWithConstraints(t.TypedDict):
-        command: t.Annotated[str, "positional", "== 1"]
-        files: t.Annotated[list[str], "positional", "== 2"]
+        command: t.Annotated[str, "1"]
+        files: t.Annotated[list[str], "2"]
 
     # Test with exact file count
     args = ["compress", "input.txt", "output.gz"]
-    result = parse_args_from_typeddict(PositionalWithConstraints, args)
+    result = parse(PositionalWithConstraints, args)
     assert result["command"] == "compress"
     assert result["files"] == ["input.txt", "output.gz"]
 
     # Test with wrong file count - should fail
     with pytest.raises(SystemExit):
-        print(
-            parse_args_from_typeddict(
-                PositionalWithConstraints, ["compress", "input.txt"]
-            )
-        )
+        print(parse(PositionalWithConstraints, ["compress", "input.txt"]))
 
 
 def test_exact_numeric_count():
     class CountTest(t.TypedDict):
-        files: t.Annotated[list[str], "positional", "2"]
+        files: t.Annotated[list[str], "2"]
 
     # Test with exact number
     args = ["file1.txt", "file2.txt"]
-    result = parse_args_from_typeddict(CountTest, args)
+    result = parse(CountTest, args)
     assert result["files"] == ["file1.txt", "file2.txt"]
 
     # Test with wrong number - should fail
     with pytest.raises(SystemExit):
-        parse_args_from_typeddict(CountTest, ["file1.txt"])
+        parse(CountTest, ["file1.txt"])
 
 
 def test_larger_exact_count():
     class CountTest(t.TypedDict):
-        files: t.Annotated[list[str], "positional", "5"]
+        files: t.Annotated[list[str], "5"]
 
     # Test with exact number
     args = ["file1.txt", "file2.txt", "file3.txt", "file4.txt", "file5.txt"]
-    result = parse_args_from_typeddict(CountTest, args)
+    result = parse(CountTest, args)
     assert result["files"] == [
         "file1.txt",
         "file2.txt",
@@ -305,13 +300,13 @@ def test_larger_exact_count():
 def test_typeddict_to_cli_args_basic():
     class TestDict(t.TypedDict):
         name: str
-        count: int
+        count: t.Optional[int]
         verbose: bool
 
     # Create a dictionary that would be an instance of TestDict
-    data = {"name": "test", "count": 42, "verbose": True}
+    data: TestDict = {"name": "test", "count": 42, "verbose": True}
 
-    args = typeddict_to_cli_args(data, TestDict)
+    args = stringify(data, TestDict)
     # The order might vary, so we'll check for inclusion
     assert "--name" in args
     assert "test" in args
@@ -322,10 +317,10 @@ def test_typeddict_to_cli_args_basic():
 
 def test_typeddict_to_cli_args_with_positionals():
     class TestDict(t.TypedDict):
-        pos1: t.Annotated[str, "positional"]
-        pos_multi: t.Annotated[list[str], "positional", ">= 0"]
+        pos1: t.Annotated[str, "1"]
+        pos_multi: t.Annotated[list[str], "+"]
         flag: bool
-        option: str
+        option: str | None
 
     # Create a dictionary that would be an instance of TestDict
     data: TestDict = {
@@ -335,7 +330,7 @@ def test_typeddict_to_cli_args_with_positionals():
         "option": "opt_val",
     }
 
-    args = typeddict_to_cli_args(data, TestDict)
+    args = stringify(data, TestDict)
 
     # The positionals should come first in order
     assert args[0] == "value1"
@@ -350,31 +345,45 @@ def test_typeddict_to_cli_args_with_positionals():
 def test_typeddict_to_cli_args_with_literal():
     class TestDict(t.TypedDict):
         mode: t.Literal["fast", "slow"]
-        level: t.Annotated[t.Literal[1, 2, 3], "positional"]
+        level: t.Annotated[t.Literal[1, 2, 3], "1"]
 
     data = {"mode": "fast", "level": 2}
 
-    args = typeddict_to_cli_args(data, TestDict)
+    args = stringify(data, TestDict)
 
     assert args[0] == "2"  # Positional comes first
     assert "--mode" in args
     assert "fast" in args
 
 
-## hooman:
-
-
 def test_list_repeat():
     class MyConfigDict(t.TypedDict):
-        repeat_me: list[str]
+        repeat_me: t.Annotated[
+            list[str], None
+        ]  # idk why'd you want to do this but at least it shouldn't crash
 
-    a = parse_args_from_typeddict(MyConfigDict, ["--repeat-me", "once"])
-    b = parse_args_from_typeddict(
-        MyConfigDict, ["--repeat-me", "once", "--repeat-me", "twice"]
-    )
+    a = parse(MyConfigDict, ["--repeat-me", "once"])
+    b = parse(MyConfigDict, ["--repeat-me", "once", "--repeat-me", "twice"])
+    c = parse(MyConfigDict, [])
 
     assert a["repeat_me"] == ["once"]
     assert b["repeat_me"] == ["once", "twice"]
 
-    assert typeddict_to_cli_args(a) == ["--repeat-me", "once"]
-    assert typeddict_to_cli_args(b) == ["--repeat-me", "once", "--repeat-me", "twice"]
+    assert stringify(a) == ["--repeat-me", "once"]
+    assert stringify(a, MyConfigDict) == ["--repeat-me", "once"]
+    assert stringify(b, MyConfigDict) == ["--repeat-me", "once", "--repeat-me", "twice"]
+    assert stringify(c, MyConfigDict) == []
+
+
+def test_enum():
+    class SomeEnum(enum.Enum):
+        first = "first"
+        second = "second-option"
+
+    class EnumDict(t.TypedDict):
+        option: t.Annotated[SomeEnum, 1]
+
+    enum_dict = parse(EnumDict, ["second-option"])
+
+    assert isinstance(enum_dict["option"], SomeEnum)
+    assert enum_dict["option"] == SomeEnum.second
