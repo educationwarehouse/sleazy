@@ -2,6 +2,16 @@
 
 <!--next-version-placeholder-->
 
+## v0.2.0 (2025-05-12)
+
+### Feature
+
+* Rework of internals and positional syntax (breaking change) ([`afb3a33`](https://github.com/educationwarehouse/sleazy/commit/afb3a330b55eeafe0e9baf94cade63c7979b58f4))
+
+### Fix
+
+* Use _ in variable name to test conversion between - and _ ([`67f5919`](https://github.com/educationwarehouse/sleazy/commit/67f59195f983851e5280f97505586dd485669042))
+
 ## v0.1.1 (2025-05-09)
 
 ### Fix
